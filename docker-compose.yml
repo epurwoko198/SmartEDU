@@ -1,0 +1,68 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: edusmart_app
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      CORE_DB_HOST: db
+      PROVISION_DB_HOST: db
+      TENANT_DB_HOST: db
+      AI_GATEWAY_URL: http://ai_gateway:8000
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+      ai_gateway:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: mysql:8.4
+    container_name: edusmart_db
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass_change_me}
+      MYSQL_DATABASE: ${CORE_DB_NAME:-edusmart_core}
+    ports:
+      - "3306:3306"
+    volumes:
+      - edusmart_db_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root_pass_change_me}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  ai_gateway:
+    build:
+      context: ./python-services/ai_gateway
+    container_name: edusmart_ai_gateway
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_GATEWAY_TOKEN: ${AI_GATEWAY_TOKEN:-change-me-gateway-token}
+      AI_DAILY_QUOTA: ${AI_DAILY_QUOTA:-200}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  edusmart_db_data:
